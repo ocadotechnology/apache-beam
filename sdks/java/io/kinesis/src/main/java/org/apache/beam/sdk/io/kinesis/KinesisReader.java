@@ -38,7 +38,7 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
   private final SimplifiedKinesisClient kinesis;
   private final KinesisSource source;
   private final CheckpointGenerator initialCheckpointGenerator;
-  private final KinesisWatermark watermark = new KinesisWatermark();
+  private final KinesisWatermark watermark;
   private final Duration upToDateThreshold;
   private final Duration backlogBytesCheckThreshold;
   private CustomOptional<KinesisRecord> currentRecord = CustomOptional.absent();
@@ -46,26 +46,39 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
   private Instant backlogBytesLastCheckTime = new Instant(0L);
   private ShardReadersPool shardReadersPool;
 
-  KinesisReader(SimplifiedKinesisClient kinesis, CheckpointGenerator initialCheckpointGenerator,
-      KinesisSource source, Duration upToDateThreshold) {
-    this(kinesis, initialCheckpointGenerator, source, upToDateThreshold,
+  KinesisReader(
+      SimplifiedKinesisClient kinesis,
+      CheckpointGenerator initialCheckpointGenerator,
+      KinesisSource source,
+      Duration upToDateThreshold) {
+    this(
+        kinesis,
+        initialCheckpointGenerator,
+        source,
+        new KinesisWatermark(),
+        upToDateThreshold,
         Duration.standardSeconds(30));
   }
 
-  KinesisReader(SimplifiedKinesisClient kinesis, CheckpointGenerator initialCheckpointGenerator,
-      KinesisSource source, Duration upToDateThreshold, Duration backlogBytesCheckThreshold) {
+  KinesisReader(
+      SimplifiedKinesisClient kinesis,
+      CheckpointGenerator initialCheckpointGenerator,
+      KinesisSource source,
+      KinesisWatermark watermark,
+      Duration upToDateThreshold,
+      Duration backlogBytesCheckThreshold) {
     this.kinesis = checkNotNull(kinesis, "kinesis");
-    this.initialCheckpointGenerator = checkNotNull(initialCheckpointGenerator,
-        "initialCheckpointGenerator");
+    this.initialCheckpointGenerator =
+        checkNotNull(initialCheckpointGenerator, "initialCheckpointGenerator");
+    this.watermark = watermark;
     this.source = source;
     this.upToDateThreshold = upToDateThreshold;
     this.backlogBytesCheckThreshold = backlogBytesCheckThreshold;
   }
 
-  /**
-   * Generates initial checkpoint and instantiates iterators for shards.
-   */
-  @Override public boolean start() throws IOException {
+  /** Generates initial checkpoint and instantiates iterators for shards. */
+  @Override
+  public boolean start() throws IOException {
     LOG.info("Starting reader using {}", initialCheckpointGenerator);
 
     try {
@@ -78,10 +91,9 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
     return advance();
   }
 
-  /**
-   * Retrieves next record from internal buffer.
-   */
-  @Override public boolean advance() throws IOException {
+  /** Retrieves next record from internal buffer. */
+  @Override
+  public boolean advance() throws IOException {
     currentRecord = shardReadersPool.nextRecord();
     if (currentRecord.isPresent()) {
       Instant approximateArrivalTimestamp = currentRecord.get().getApproximateArrivalTimestamp();
@@ -91,11 +103,13 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
     return false;
   }
 
-  @Override public byte[] getCurrentRecordId() throws NoSuchElementException {
+  @Override
+  public byte[] getCurrentRecordId() throws NoSuchElementException {
     return currentRecord.get().getUniqueId();
   }
 
-  @Override public KinesisRecord getCurrent() throws NoSuchElementException {
+  @Override
+  public KinesisRecord getCurrent() throws NoSuchElementException {
     return currentRecord.get();
   }
 
@@ -105,23 +119,28 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
    * not. Beware of this when setting {@link
    * org.apache.beam.sdk.values.WindowingStrategy#withAllowedLateness}
    */
-  @Override public Instant getCurrentTimestamp() throws NoSuchElementException {
+  @Override
+  public Instant getCurrentTimestamp() throws NoSuchElementException {
     return currentRecord.get().getApproximateArrivalTimestamp();
   }
 
-  @Override public void close() throws IOException {
+  @Override
+  public void close() throws IOException {
     shardReadersPool.stop();
   }
 
-  @Override public Instant getWatermark() {
+  @Override
+  public Instant getWatermark() {
     return watermark.getCurrent(shardReadersPool::allShardsUpToDate);
   }
 
-  @Override public UnboundedSource.CheckpointMark getCheckpointMark() {
+  @Override
+  public UnboundedSource.CheckpointMark getCheckpointMark() {
     return shardReadersPool.getCheckpointMark();
   }
 
-  @Override public UnboundedSource<KinesisRecord, ?> getCurrentSource() {
+  @Override
+  public UnboundedSource<KinesisRecord, ?> getCurrentSource() {
     return source;
   }
 
@@ -130,7 +149,8 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
    * currently processed record is not further behind than {@link #upToDateThreshold} then this
    * method returns 0.
    */
-  @Override public long getTotalBacklogBytes() {
+  @Override
+  public long getTotalBacklogBytes() {
     Instant watermark = getWatermark();
     if (watermark.plus(upToDateThreshold).isAfterNow()) {
       return 0L;
@@ -144,8 +164,11 @@ class KinesisReader extends UnboundedSource.UnboundedReader<KinesisRecord> {
     } catch (TransientKinesisException e) {
       LOG.warn("Transient exception occurred.", e);
     }
-    LOG.info("Total backlog bytes for {} stream with {} watermark: {}", source.getStreamName(),
-        watermark, lastBacklogBytes);
+    LOG.info(
+        "Total backlog bytes for {} stream with {} watermark: {}",
+        source.getStreamName(),
+        watermark,
+        lastBacklogBytes);
     return lastBacklogBytes;
   }
 

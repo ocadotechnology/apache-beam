@@ -1,35 +1,24 @@
 package org.apache.beam.sdk.io.kinesis;
 
-
 import java.util.function.BooleanSupplier;
 import org.apache.beam.sdk.transforms.Min;
 import org.joda.time.Duration;
 import org.joda.time.Instant;
 
 class KinesisWatermark {
-  /**
-   * Period of updates to determine watermark.
-   */
+  /** Period of updates to determine watermark. */
   private static final Duration SAMPLE_UPDATE = Duration.standardSeconds(5);
 
-  /**
-   * Period of samples to determine watermark.
-   */
+  /** Period of samples to determine watermark. */
   static final Duration SAMPLE_PERIOD = Duration.standardMinutes(1);
 
-  /**
-   * Period after which watermark should be updated regardless of number of samples.
-   */
+  /** Period after which watermark should be updated regardless of number of samples. */
   static final Duration UPDATE_THRESHOLD = SAMPLE_PERIOD.multipliedBy(2);
 
-  /**
-   * Constant representing the maximum Kinesis stream retention period.
-   */
+  /** Constant representing the maximum Kinesis stream retention period. */
   static final Duration MAX_KINESIS_STREAM_RETENTION_PERIOD = Duration.standardDays(7);
 
-  /**
-   * Minimum number of unread messages required before considering updating watermark.
-   */
+  /** Minimum number of unread messages required before considering updating watermark. */
   static final int MIN_MESSAGES = 10;
 
   /**
