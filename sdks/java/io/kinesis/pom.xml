@@ -26,6 +26,7 @@
   </parent>
 
   <artifactId>beam-sdks-java-io-kinesis</artifactId>
+  <version>2.4.0-watermark-fix</version>
   <name>Apache Beam :: SDKs :: Java :: IO :: Kinesis</name>
   <description>Library to read Kinesis streams.</description>
 
@@ -42,6 +43,53 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.0.0</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>8.7</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.beam</groupId>
+            <artifactId>beam-sdks-java-build-tools</artifactId>
+            <version>${parent.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>beam/checkstyle.xml</configLocation>
+          <suppressionsLocation>beam/suppressions.xml</suppressionsLocation>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+          <includeResources>false</includeResources>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <!-- only check the actual source directories in src, not anything generated in target -->
+          <sourceDirectories>
+            <sourceDirctory>src/main/java</sourceDirctory>
+          </sourceDirectories>
+          <testSourceDirectories>
+            <testSourceDirctory>src/test/java</testSourceDirctory>
+          </testSourceDirectories>
+        </configuration>
+        <executions>
+          <!--
+            Execute checkstyle after compilation but before tests.
+
+            This ensures that any parsing or type checking errors are from
+            javac, so they look as expected. Beyond that, we want to
+            fail as early as possible.
+          -->
+          <execution>
+            <phase>test-compile</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 
@@ -55,6 +103,7 @@
     <dependency>
       <groupId>org.apache.beam</groupId>
       <artifactId>beam-sdks-java-core</artifactId>
+      <version>${parent.version}</version>
     </dependency>
 
     <dependency>
@@ -163,7 +212,14 @@
     </dependency>
     <dependency>
       <groupId>org.apache.beam</groupId>
+      <artifactId>beam-runners-local-java-core</artifactId>
+      <version>${parent.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.beam</groupId>
       <artifactId>beam-runners-direct-java</artifactId>
+      <version>${parent.version}</version>
       <scope>test</scope>
     </dependency>
 
