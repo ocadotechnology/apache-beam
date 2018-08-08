@@ -61,10 +61,9 @@ public class KinesisReaderTest {
   private KinesisReader reader;
 
   @Before
-  public void setUp() throws IOException, TransientKinesisException {
-    when(generator.generate(kinesis)).thenReturn(new KinesisReaderCheckpoint(
-        asList(firstCheckpoint, secondCheckpoint)
-    ));
+  public void setUp() throws TransientKinesisException {
+    when(generator.generate(kinesis))
+        .thenReturn(new KinesisReaderCheckpoint(asList(firstCheckpoint, secondCheckpoint)));
     when(shardReadersPool.nextRecord()).thenReturn(CustomOptional.absent());
     when(a.getApproximateArrivalTimestamp()).thenReturn(Instant.now());
     when(b.getApproximateArrivalTimestamp()).thenReturn(Instant.now());
@@ -95,8 +94,7 @@ public class KinesisReaderTest {
   }
 
   @Test
-  public void startReturnsTrueIfSomeDataAvailable() throws IOException,
-      TransientKinesisException {
+  public void startReturnsTrueIfSomeDataAvailable() throws IOException {
     when(shardReadersPool.nextRecord())
         .thenReturn(CustomOptional.of(a))
         .thenReturn(CustomOptional.absent());
@@ -105,7 +103,7 @@ public class KinesisReaderTest {
   }
 
   @Test
-  public void readsThroughAllDataAvailable() throws IOException, TransientKinesisException {
+  public void readsThroughAllDataAvailable() throws IOException {
     when(shardReadersPool.nextRecord())
         .thenReturn(CustomOptional.of(c))
         .thenReturn(CustomOptional.absent())
@@ -129,22 +127,83 @@ public class KinesisReaderTest {
   }
 
   @Test
-  public void watermarkDoesNotChangeWhenToFewSampleRecords()
-      throws IOException, TransientKinesisException {
+  public void readerStartsWithMinWatermark() throws Exception {
+    try {
+      Instant now = Instant.now();
+      DateTimeUtils.setCurrentMillisFixed(now.getMillis());
+      Duration safetyPeriod = Duration.standardMinutes(1);
+      Instant minKinesisWatermark = now.minus(KinesisWatermark.MAX_KINESIS_STREAM_RETENTION_PERIOD);
+
+      reader.start();
+      assertThat(reader.getWatermark())
+          .isBetween(
+              minKinesisWatermark.minus(safetyPeriod), minKinesisWatermark.plus(safetyPeriod));
+    } finally {
+      DateTimeUtils.setCurrentMillisSystem();
+    }
+  }
+
+  @Test
+  public void watermarkIsUpdatedToRecentRecordTimestampIfNoRecordsPreviouslyRead()
+      throws IOException {
     try {
       Instant now = Instant.now();
       DateTimeUtils.setCurrentMillisFixed(now.getMillis());
       Instant recordsStartTimestamp = now.minus(Duration.standardHours(1));
       final long timestampMs = recordsStartTimestamp.getMillis();
-      Duration safetyPeriod = Duration.standardMinutes(1);
-      Instant minKinesisWatermark = now.minus(KinesisReader.MAX_KINESIS_STREAM_RETENTION_PERIOD);
+      reader.start();
 
-      prepareRecordsWithArrivalTimestamps(timestampMs, 1, KinesisReader.MIN_WATERMARK_MESSAGES / 2);
+      prepareRecordsWithArrivalTimestamps(timestampMs, 1, 1);
+      reader.advance();
+      assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
+    } finally {
+      DateTimeUtils.setCurrentMillisSystem();
+    }
+  }
 
-      for (boolean more = reader.start(); more; more = reader.advance()) {
-        assertThat(reader.getWatermark()).isBetween(
-            minKinesisWatermark.minus(safetyPeriod),
-            minKinesisWatermark.plus(safetyPeriod));
+  @Test
+  public void watermarkIsUpdatedToRecentRecordTimestampIfItIsOlderThanSamplePeriod()
+      throws IOException {
+    try {
+      Instant now = Instant.now();
+      DateTimeUtils.setCurrentMillisFixed(now.getMillis());
+      Instant recordsStartTimestamp = now.minus(Duration.standardHours(1));
+      long timestampMs = recordsStartTimestamp.getMillis();
+      reader.start();
+
+      prepareRecordsWithArrivalTimestamps(timestampMs, 1, 1);
+      reader.advance();
+      assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
+
+      Instant timeAfterWatermarkUpdateThreshold =
+          now.plus(KinesisWatermark.UPDATE_THRESHOLD.plus(Duration.standardSeconds(1)));
+      DateTimeUtils.setCurrentMillisFixed(timeAfterWatermarkUpdateThreshold.getMillis());
+      timestampMs += 1;
+      prepareRecordsWithArrivalTimestamps(timestampMs, 1, 1);
+      reader.advance();
+      assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
+    } finally {
+      DateTimeUtils.setCurrentMillisSystem();
+    }
+  }
+
+  @Test
+  public void watermarkDoesNotChangeWhenToFewSampleRecordsInSamplePeriod() throws IOException {
+    try {
+      Instant now = Instant.now();
+      DateTimeUtils.setCurrentMillisFixed(now.getMillis());
+      Instant recordsStartTimestamp = now.minus(Duration.standardHours(1));
+      long timestampMs = recordsStartTimestamp.getMillis();
+      reader.start();
+
+      prepareRecordsWithArrivalTimestamps(timestampMs, 1, 1);
+      reader.advance();
+      assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
+
+      DateTimeUtils.setCurrentMillisFixed(now.plus(KinesisWatermark.SAMPLE_PERIOD).getMillis());
+      prepareRecordsWithArrivalTimestamps(timestampMs + 1, 1, KinesisWatermark.MIN_MESSAGES / 2);
+      while (reader.advance()) {
+        assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
       }
     } finally {
       DateTimeUtils.setCurrentMillisSystem();
@@ -152,26 +211,28 @@ public class KinesisReaderTest {
   }
 
   @Test
-  public void watermarkAdvancesWhenEnoughRecordsReadRecently()
-      throws IOException, TransientKinesisException {
+  public void watermarkAdvancesWhenEnoughRecordsReadRecently() throws IOException {
     try {
       Instant now = Instant.now();
       DateTimeUtils.setCurrentMillisFixed(now.getMillis());
       Instant recordsStartTimestamp = now.minus(Duration.standardHours(1));
       long timestampMs = recordsStartTimestamp.getMillis();
-      Duration safetyPeriod = Duration.standardMinutes(1);
-      Instant minKinesisWatermark = now.minus(KinesisReader.MAX_KINESIS_STREAM_RETENTION_PERIOD);
+      reader.start();
 
-      prepareRecordsWithArrivalTimestamps(timestampMs, 1, KinesisReader.MIN_WATERMARK_MESSAGES);
+      prepareRecordsWithArrivalTimestamps(timestampMs, 1, 1);
+      reader.advance();
+      assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
 
-      int recordsNeededForWatermarkAdvancing = KinesisReader.MIN_WATERMARK_MESSAGES;
-      for (boolean more = reader.start(); more; more = reader.advance()) {
+      DateTimeUtils.setCurrentMillisFixed(now.plus(KinesisWatermark.SAMPLE_PERIOD).getMillis());
+      long newTimestampMs = timestampMs + 1;
+      prepareRecordsWithArrivalTimestamps(newTimestampMs, 1, KinesisWatermark.MIN_MESSAGES);
+
+      int recordsNeededForWatermarkAdvancing = KinesisWatermark.MIN_MESSAGES;
+      while (reader.advance()) {
         if (--recordsNeededForWatermarkAdvancing > 0) {
-          assertThat(reader.getWatermark()).isBetween(
-              minKinesisWatermark.minus(safetyPeriod),
-              minKinesisWatermark.plus(safetyPeriod));
-        } else {
           assertThat(reader.getWatermark()).isEqualTo(new Instant(timestampMs));
+        } else {
+          assertThat(reader.getWatermark()).isEqualTo(new Instant(newTimestampMs));
         }
       }
     } finally {
@@ -180,11 +241,10 @@ public class KinesisReaderTest {
   }
 
   @Test
-  public void watermarkMonotonicallyIncreases()
-      throws IOException, TransientKinesisException {
+  public void watermarkMonotonicallyIncreases() throws IOException {
     long timestampMs = 1000L;
 
-    prepareRecordsWithArrivalTimestamps(timestampMs, -1, KinesisReader.MIN_WATERMARK_MESSAGES * 2);
+    prepareRecordsWithArrivalTimestamps(timestampMs, -1, KinesisWatermark.MIN_MESSAGES * 2);
 
     Instant lastWatermark = BoundedWindow.TIMESTAMP_MIN_VALUE;
     for (boolean more = reader.start(); more; more = reader.advance()) {
@@ -195,8 +255,8 @@ public class KinesisReaderTest {
     assertThat(reader.advance()).isFalse();
   }
 
-  private void prepareRecordsWithArrivalTimestamps(long initialTimestampMs, int increment,
-      int count) throws TransientKinesisException {
+  private void prepareRecordsWithArrivalTimestamps(
+      long initialTimestampMs, int increment, int count) {
     long timestampMs = initialTimestampMs;
     KinesisRecord firstRecord = prepareRecordMockWithArrivalTimestamp(timestampMs);
     OngoingStubbing<CustomOptional<KinesisRecord>> shardReadersPoolStubbing =

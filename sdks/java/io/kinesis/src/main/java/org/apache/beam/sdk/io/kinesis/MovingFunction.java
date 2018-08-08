@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.beam.sdk.util;
+package org.apache.beam.sdk.io.kinesis;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
