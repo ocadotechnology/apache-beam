@@ -42,7 +42,7 @@ class KinesisWatermark {
     Instant readMin = getMinReadTimestamp(now);
     if (readMin == null) {
       if (shardsUpToDate.getAsBoolean()) {
-        updateLastWatermark(now, now);
+        updateLastWatermark(now.minus(SAMPLE_PERIOD), now);
       }
     } else if (shouldUpdate(now)) {
       updateLastWatermark(readMin, now);

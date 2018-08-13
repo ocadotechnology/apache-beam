@@ -53,8 +53,9 @@ public class KinesisWatermarkTest {
   }
 
   @Test
-  public void watermarkStartsWithnNowIfShardsUpToDate() {
-    assertThat(watermark.getCurrent(SHARDS_UP_TO_DATE)).isEqualTo(now);
+  public void watermarkStartsSamplePeriodBehindNowIfShardsUpToDate() {
+    assertThat(watermark.getCurrent(SHARDS_UP_TO_DATE))
+        .isEqualTo(now.minus(KinesisWatermark.SAMPLE_PERIOD));
   }
 
   @Test
